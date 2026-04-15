@@ -59,11 +59,7 @@ class GestureRecognizer:
     """
     
     def __init__(
-<<<<<<< HEAD
         self, 
-=======
-        self,
->>>>>>> 1f46c2d5f244e891af626f383ac337fdf651807d
         smoothing_factor: float = 0.3,
         scale_sensitivity: float = 1.5,
         rotation_sensitivity: float = 0.8,
@@ -122,15 +118,9 @@ class GestureRecognizer:
         self.accumulated_rotation = 0.0
     
     def recognize(
-<<<<<<< HEAD
         self, 
         landmarks: List, 
         frame_width: int, 
-=======
-        self,
-        landmarks: List,
-        frame_width: int,
->>>>>>> 1f46c2d5f244e891af626f383ac337fdf651807d
         frame_height: int
     ) -> GestureResult:
         """
@@ -144,11 +134,7 @@ class GestureRecognizer:
                 hand_detected=False,
                 scale_factor=self.accumulated_scale,
                 rotation_angle=self.accumulated_rotation,
-<<<<<<< HEAD
                 translation=(int(self.accumulated_translation[0]), 
-=======
-                translation=(int(self.accumulated_translation[0]),
->>>>>>> 1f46c2d5f244e891af626f383ac337fdf651807d
                            int(self.accumulated_translation[1])),
                 flip_horizontal=self.flip_state,
                 gesture_name="No Hand"
@@ -234,11 +220,7 @@ class GestureRecognizer:
         
         self.prev_centroid = centroid
         
-<<<<<<< HEAD
         result.translation = (int(self.accumulated_translation[0]), 
-=======
-        result.translation = (int(self.accumulated_translation[0]),
->>>>>>> 1f46c2d5f244e891af626f383ac337fdf651807d
                              int(self.accumulated_translation[1]))
         
         # === REFLECTION: Improved fist detection ===
@@ -268,11 +250,7 @@ class GestureRecognizer:
         
         # Primary distance: thumb to index
         dist = math.sqrt(
-<<<<<<< HEAD
             (thumb_tip.x - index_tip.x) ** 2 + 
-=======
-            (thumb_tip.x - index_tip.x) ** 2 +
->>>>>>> 1f46c2d5f244e891af626f383ac337fdf651807d
             (thumb_tip.y - index_tip.y) ** 2
         )
         
