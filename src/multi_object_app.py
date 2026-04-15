@@ -527,21 +527,7 @@ class MultiObjectManipulator:
         """Initialize the application."""
         self.root = tk.Tk()
         self.root.title("Multi-Object Extractor & Manipulator")
-        
-        # Get screen dimensions and set window size to fit
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        # Use 90% of screen or max reasonable size
-        win_width = min(1500, int(screen_width * 0.9))
-        win_height = min(950, int(screen_height * 0.85))
-        
-        # Center the window
-        x = (screen_width - win_width) // 2
-        y = (screen_height - win_height) // 2 - 30
-        
-        self.root.geometry(f"{win_width}x{win_height}+{x}+{y}")
-        self.root.minsize(1000, 600)
+        self.root.geometry("1500x900")
         self.root.configure(bg='#1e1e1e')
         
         # State
@@ -558,24 +544,6 @@ class MultiObjectManipulator:
         self.recognizer = None
         self.webcam = None
         self.current_gesture = GestureResult()
-        
-        # Gesture selection state
-        self.gesture_mode = "transform"  # "select" or "transform"
-        self.pointing_position = None  # (x, y) normalized pointing position
-        self.hover_object = None  # Object being hovered by gesture
-        self.selection_cooldown = 0  # Frames to wait before allowing new selection
-        self.swipe_start_x = None  # For swipe gesture detection
-        self.last_index_tip_x = None
-        self.pinch_select_active = False
-        self.thumb_index_dist_history = []
-        self.last_palm_facing = None  # Track palm orientation for flip detection
-        self.was_fist = False  # Track fist state for selection
-        
-        # Transform mode: "object" or "image"
-        self.transform_target = tk.StringVar(value="object")
-        self.full_image_scale = 1.0
-        self.full_image_rotation = 0.0
-        self.full_image_flipped = False
         
         # Settings
         self.min_area = tk.IntVar(value=1000)
@@ -610,7 +578,7 @@ class MultiObjectManipulator:
         content.pack(fill=tk.BOTH, expand=True, pady=10)
         
         # Left: Objects panel
-        objects_panel = ttk.Frame(content, width=180)
+        objects_panel = ttk.Frame(content, width=200)
         objects_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         objects_panel.pack_propagate(False)
         self._build_objects_panel(objects_panel)
@@ -620,31 +588,11 @@ class MultiObjectManipulator:
         image_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._build_image_panel(image_panel)
         
-        # Right: Controls and webcam (with scrollbar)
-        control_panel = ttk.Frame(content, width=300)
+        # Right: Controls and webcam
+        control_panel = ttk.Frame(content, width=350)
         control_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         control_panel.pack_propagate(False)
-        
-        # Add scrollable canvas for control panel
-        control_canvas = tk.Canvas(control_panel, bg='#1e1e1e', highlightthickness=0, width=280)
-        control_scrollbar = ttk.Scrollbar(control_panel, orient="vertical", 
-                                          command=control_canvas.yview)
-        self.control_inner = ttk.Frame(control_canvas, width=270)
-        
-        control_canvas.configure(yscrollcommand=control_scrollbar.set)
-        control_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        control_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        control_canvas.create_window((0, 0), window=self.control_inner, anchor=tk.NW)
-        self.control_inner.bind("<Configure>", 
-            lambda e: control_canvas.configure(scrollregion=control_canvas.bbox("all")))
-        
-        # Enable mousewheel scrolling
-        def _on_mousewheel(event):
-            control_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        control_canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        
-        self._build_control_panel(self.control_inner)
+        self._build_control_panel(control_panel)
         
         # Status bar
         self.status_var = tk.StringVar(value="Upload an image to get started")
@@ -765,21 +713,6 @@ class MultiObjectManipulator:
         ttk.Checkbutton(trans_frame, text="Flip Horizontal", variable=self.flip_var,
                        command=self._on_transform_change).pack(anchor=tk.W, padx=5, pady=5)
         
-        # Transform Mode toggle
-        mode_frame = ttk.LabelFrame(parent, text="Transform Mode")
-        mode_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Radiobutton(mode_frame, text="🎯 Individual Object", value="object",
-                       variable=self.transform_target,
-                       command=self._on_mode_change).pack(anchor=tk.W, padx=10, pady=2)
-        ttk.Radiobutton(mode_frame, text="🖼 Full Image", value="image",
-                       variable=self.transform_target,
-                       command=self._on_mode_change).pack(anchor=tk.W, padx=10, pady=2)
-        
-        self.mode_info_label = ttk.Label(mode_frame, text="Transforms apply to selected object",
-                                         font=('Helvetica', 8), foreground='gray')
-        self.mode_info_label.pack(padx=10, pady=2)
-        
         # Gesture control
         gesture_frame = ttk.LabelFrame(parent, text="Gesture Control")
         gesture_frame.pack(fill=tk.X, pady=10)
@@ -793,40 +726,20 @@ class MultiObjectManipulator:
         ttk.Button(gesture_frame, textvariable=self.gesture_btn_text,
                   command=self._toggle_gesture).pack(fill=tk.X, padx=5, pady=5)
         
-        # Gesture mode selection
-        mode_frame = ttk.Frame(gesture_frame)
-        mode_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        ttk.Label(mode_frame, text="Mode:").pack(side=tk.LEFT)
-        self.gesture_mode_var = tk.StringVar(value="select")
-        ttk.Radiobutton(mode_frame, text="Select", value="select",
-                       variable=self.gesture_mode_var,
-                       command=self._on_gesture_mode_change).pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(mode_frame, text="Transform", value="transform",
-                       variable=self.gesture_mode_var,
-                       command=self._on_gesture_mode_change).pack(side=tk.LEFT, padx=5)
-        
         # Gesture instructions
-        inst_frame = ttk.LabelFrame(gesture_frame, text="🎮 GESTURE CONTROLS")
+        inst_frame = ttk.LabelFrame(gesture_frame, text="Gesture Guide")
         inst_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.gesture_instructions = ttk.Label(inst_frame, text=
-            "UNIVERSAL:\n"
-            "✌️ Peace → Switch Object/Image\n"
-            "🤟 Rock (Index+Pinky) → Reset\n\n"
-            "SELECT MODE:\n"
-            "☝️ Point → Move cursor\n"
-            "✊ Fist → Select/Transform\n\n"
-            "TRANSFORM MODE:\n"
-            "🤏 Pinch → Scale\n"
-            "🖐️ Tilt → Rotate\n"
-            "🤙 Pinky+Thumb → Flip",
-            wraplength=300, justify=tk.LEFT)
-        self.gesture_instructions.pack(padx=5, pady=5)
+        ttk.Label(inst_frame, text=
+            "TRANSFORM (select object first):\n"
+            "• Pinch → Zoom in/out\n"
+            "• Tilt hand → Rotate\n"
+            "• Pinky+Thumb touch → FLIP",
+            wraplength=300, justify=tk.LEFT).pack(padx=5, pady=5)
         
         # Gesture info
         self.gesture_labels = {}
-        for name in ["Mode", "Hover", "Selected", "Action"]:
+        for name in ["Selected", "Action"]:
             row = ttk.Frame(gesture_frame)
             row.pack(fill=tk.X, padx=5)
             ttk.Label(row, text=f"{name}:", width=10).pack(side=tk.LEFT)
@@ -841,34 +754,9 @@ class MultiObjectManipulator:
                    0.6, (80, 80, 80), 2)
         self._update_webcam_frame(img)
     
-    def _on_gesture_mode_change(self):
-        """Handle gesture mode change."""
-        mode = self.gesture_mode_var.get()
-        self.gesture_mode = mode
-        
-        if mode == "select":
-            self.gesture_instructions.config(text=
-                "UNIVERSAL:\n"
-                "✌️ Peace → Switch Object/Image\n"
-                "🤟 Rock → Reset transforms\n\n"
-                "SELECT MODE:\n"
-                "☝️ Point → Move cursor\n"
-                "✊ Fist → Select/Transform")
-        else:
-            self.gesture_instructions.config(text=
-                "UNIVERSAL:\n"
-                "✌️ Peace → Switch Object/Image\n"
-                "🤟 Rock → Reset transforms\n\n"
-                "TRANSFORM MODE:\n"
-                "🤏 Pinch → Scale\n"
-                "🖐️ Tilt → Rotate\n"
-                "🤙 Pinky+Thumb → Flip")
-        
-        self.status_var.set(f"Gesture mode: {mode.upper()}")
-    
     def _update_webcam_frame(self, frame):
         """Update webcam preview."""
-        frame = cv2.resize(frame, (200, 150))
+        frame = cv2.resize(frame, (240, 180))
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(rgb)
         self.webcam_photo = ImageTk.PhotoImage(img)
@@ -1000,10 +888,19 @@ class MultiObjectManipulator:
         x, y, w, h = obj.bbox
         self.obj_info_label.config(text=f"{obj.name}\nSize: {w}x{h}\nArea: {obj.area} px")
         
-        # Reset transforms
+        # Sync UI controls to object's current transforms
         self.scale_var.set(obj.scale)
         self.rotation_var.set(obj.rotation)
         self.flip_var.set(obj.flipped)
+        
+        # IMPORTANT: Sync gesture recognizer to this object's current state
+        # This prevents transforms from carrying over between objects
+        if self.recognizer:
+            self.recognizer.accumulated_scale = obj.scale
+            self.recognizer.accumulated_rotation = obj.rotation
+            self.recognizer.flip_state = obj.flipped
+            # Reset calibration to start fresh gesture detection
+            self.recognizer.reset_calibration()
         
         self._update_display()
         self.status_var.set(f"Selected: {obj.name}")
@@ -1024,8 +921,6 @@ class MultiObjectManipulator:
         
         self.selected_object = None
         self.selected_index = -1
-        self.hover_object = None
-        self.pointing_position = None
         
         # Clear info
         self.obj_info_label.config(text="No object selected")
@@ -1034,6 +929,10 @@ class MultiObjectManipulator:
         self.scale_var.set(1.0)
         self.rotation_var.set(0)
         self.flip_var.set(False)
+        
+        # Reset gesture recognizer to default state
+        if self.recognizer:
+            self.recognizer.reset()
         
         self._update_display()
         self.status_var.set("Object released")
@@ -1067,7 +966,7 @@ class MultiObjectManipulator:
         ch = self.canvas.winfo_height()
         ih, iw = self.original_image.shape[:2]
         
-        scale = min(cw / iw, ch / ih) * 0.95
+        scale = min(cw / iw, ch / ih)
         sw, sh = int(iw * scale), int(ih * scale)
         
         ox = (cw - sw) // 2
@@ -1082,130 +981,35 @@ class MultiObjectManipulator:
     
     def _on_transform_change(self, *args):
         """Handle transform slider changes."""
-        mode = self.transform_target.get()
-        scale = self.scale_var.get()
-        rotation = self.rotation_var.get()
-        flip = self.flip_var.get()
-        
-        print(f"Transform change: mode={mode}, scale={scale:.2f}, rot={rotation:.1f}, flip={flip}")
-        
-        if mode == "object":
-            # Apply to selected object
-            if self.selected_object:
-                self.selected_object.scale = scale
-                self.selected_object.rotation = rotation
-                self.selected_object.flipped = flip
-        else:
-            # Apply to full image
-            self.full_image_scale = scale
-            self.full_image_rotation = rotation
-            self.full_image_flipped = flip
-        
-        self._update_display()
-    
-    def _on_mode_change(self):
-        """Handle transform mode change."""
-        mode = self.transform_target.get()
-        print(f"Mode changed to: {mode}")
-        
-        if mode == "object":
-            self.mode_info_label.config(text="Transforms apply to selected object")
-            # Restore object transforms to sliders
-            if self.selected_object:
-                self.scale_var.set(self.selected_object.scale)
-                self.rotation_var.set(self.selected_object.rotation)
-                self.flip_var.set(self.selected_object.flipped)
-            else:
-                self.scale_var.set(1.0)
-                self.rotation_var.set(0.0)
-                self.flip_var.set(False)
-        else:
-            self.mode_info_label.config(text="Transforms apply to entire image")
-            # Restore full image transforms to sliders
-            self.scale_var.set(self.full_image_scale)
-            self.rotation_var.set(self.full_image_rotation)
-            self.flip_var.set(self.full_image_flipped)
-        
-        self._update_display()
+        if self.selected_object:
+            self.selected_object.scale = self.scale_var.get()
+            self.selected_object.rotation = self.rotation_var.get()
+            self.selected_object.flipped = self.flip_var.get()
+            self._update_display()
     
     def _update_display(self):
         """Update main image display."""
         if self.original_image is None:
             return
         
-        mode = self.transform_target.get()
-        print(f"Update display: mode={mode}")
+        display = self.original_image.copy()
         
-        if mode == "image":
-            # Full image transform mode
-            print(f"Applying full image: scale={self.full_image_scale}, rot={self.full_image_rotation}, flip={self.full_image_flipped}")
-            display = self._apply_full_image_transform()
-        else:
-            # Object transform mode
-            display = self.original_image.copy()
+        # Draw all objects with highlights
+        for obj in self.objects:
+            color = (0, 255, 0) if obj == self.selected_object else (100, 100, 100)
+            thickness = 3 if obj == self.selected_object else 1
+            cv2.drawContours(display, [obj.contour], -1, color, thickness)
+        
+        # Apply transformation to selected object
+        if self.selected_object:
+            display = self._apply_transform(display, self.selected_object)
             
-            # Draw all objects with highlights
-            for obj in self.objects:
-                color = (0, 255, 0) if obj == self.selected_object else (100, 100, 100)
-                thickness = 3 if obj == self.selected_object else 1
-                cv2.drawContours(display, [obj.contour], -1, color, thickness)
-            
-            # Apply transformation to selected object
-            if self.selected_object:
-                display = self._apply_transform(display, self.selected_object)
-                
-                # Draw bounding box
-                x, y, w, h = self.selected_object.bbox
-                cv2.rectangle(display, (x, y), (x+w, y+h), (255, 0, 0), 2)
+            # Draw bounding box
+            x, y, w, h = self.selected_object.bbox
+            cv2.rectangle(display, (x, y), (x+w, y+h), (255, 0, 0), 2)
         
         # Display on canvas
         self._show_on_canvas(display)
-    
-    def _apply_full_image_transform(self) -> np.ndarray:
-        """Apply transformation to the full image."""
-        img = self.original_image.copy()
-        h, w = img.shape[:2]
-        
-        # Scale
-        if self.full_image_scale != 1.0:
-            new_w = int(w * self.full_image_scale)
-            new_h = int(h * self.full_image_scale)
-            img = cv2.resize(img, (new_w, new_h))
-            
-            # Center on original size canvas
-            canvas = np.zeros((h, w, 3), dtype=np.uint8)
-            # Fill with average color
-            canvas[:] = cv2.mean(self.original_image)[:3]
-            
-            # Calculate offset to center
-            offset_x = (w - new_w) // 2
-            offset_y = (h - new_h) // 2
-            
-            # Handle cases where scaled image is larger than canvas
-            src_x = max(0, -offset_x)
-            src_y = max(0, -offset_y)
-            dst_x = max(0, offset_x)
-            dst_y = max(0, offset_y)
-            
-            copy_w = min(new_w - src_x, w - dst_x)
-            copy_h = min(new_h - src_y, h - dst_y)
-            
-            if copy_w > 0 and copy_h > 0:
-                canvas[dst_y:dst_y+copy_h, dst_x:dst_x+copy_w] = img[src_y:src_y+copy_h, src_x:src_x+copy_w]
-            
-            img = canvas
-        
-        # Rotation
-        if self.full_image_rotation != 0:
-            center = (w // 2, h // 2)
-            M = cv2.getRotationMatrix2D(center, self.full_image_rotation, 1.0)
-            img = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
-        
-        # Flip
-        if self.full_image_flipped:
-            img = cv2.flip(img, 1)
-        
-        return img
     
     def _apply_transform(self, image: np.ndarray, obj: ExtractedObject) -> np.ndarray:
         """Apply transformation to object in image."""
@@ -1271,7 +1075,7 @@ class MultiObjectManipulator:
             return
         
         ih, iw = image.shape[:2]
-        scale = min(cw / iw, ch / ih) * 0.95
+        scale = min(cw / iw, ch / ih)
         
         resized = cv2.resize(image, (int(iw * scale), int(ih * scale)))
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
@@ -1317,12 +1121,11 @@ class MultiObjectManipulator:
         self._show_webcam_placeholder()
     
     def _gesture_loop(self):
-        """Gesture processing loop - ALL operations via gestures."""
+        """Gesture processing loop for transform mode only."""
         import math
         import time
         
-        last_hover_obj = None
-        frame_count = 0
+        flip_cooldown = 0
         
         while self.gesture_active:
             try:
@@ -1336,331 +1139,70 @@ class MultiObjectManipulator:
                 landmarks = self.detector.detect(frame)
                 
                 action_text = "-"
-                frame_count += 1
                 
-                if landmarks:
-                    # Get key landmark positions
-                    index_tip = landmarks[8]
+                # Cooldown management
+                if flip_cooldown > 0:
+                    flip_cooldown -= 1
+                
+                if landmarks and self.selected_object:
+                    # Get key landmark positions for flip detection
                     thumb_tip = landmarks[4]
-                    index_mcp = landmarks[5]
-                    wrist = landmarks[0]
-                    middle_tip = landmarks[12]
-                    ring_tip = landmarks[16]
                     pinky_tip = landmarks[20]
                     
-                    # Calculate pinch distance
-                    pinch_dist = math.sqrt(
-                        (thumb_tip.x - index_tip.x)**2 + 
-                        (thumb_tip.y - index_tip.y)**2
-                    )
-                    
-                    # Detect finger states
-                    index_extended = index_tip.y < index_mcp.y
-                    middle_extended = middle_tip.y < landmarks[9].y
-                    ring_extended = ring_tip.y < landmarks[13].y
-                    pinky_extended = pinky_tip.y < landmarks[17].y
-                    
-                    middle_curled = not middle_extended
-                    ring_curled = not ring_extended
-                    pinky_curled = not pinky_extended
-                    
-                    # Gesture detection
-                    is_pointing = index_extended and middle_curled and ring_curled and pinky_curled
-                    is_pinching = pinch_dist < 0.06
-                    
-                    # Peace sign (index + middle) -> Switch transform target
-                    is_peace = index_extended and middle_extended and ring_curled and pinky_curled
-                    
-                    # Three fingers -> Switch to Transform mode
-                    is_three_fingers = index_extended and middle_extended and ring_extended and pinky_curled
-                    
-                    # Open palm (all extended)
-                    all_extended = index_extended and middle_extended and ring_extended and pinky_extended
-                    
-                    # Fist (all curled)
-                    is_fist = not index_extended and not middle_extended and not ring_extended and not pinky_extended
-                    
-                    # Rock sign (index + pinky) -> Reset
-                    is_rock = index_extended and pinky_extended and middle_curled and ring_curled
-                    
-                    # Pinky-thumb touch (flip)
+                    # Detect pinky-thumb touch (for flip/mirror)
                     pinky_thumb_dist = math.sqrt(
                         (thumb_tip.x - pinky_tip.x)**2 + 
                         (thumb_tip.y - pinky_tip.y)**2
                     )
                     is_pinky_thumb_touch = pinky_thumb_dist < 0.08
                     
-                    # Palm orientation
-                    middle_mcp = landmarks[9]
-                    palm_facing = "front" if middle_mcp.x > wrist.x else "back"
-                    palm_flipped = False
-                    if self.last_palm_facing is not None and self.last_palm_facing != palm_facing:
-                        palm_flipped = True
-                    self.last_palm_facing = palm_facing
+                    # Transform the selected object
+                    gesture = self.recognizer.recognize(
+                        landmarks, self.webcam.width, self.webcam.height
+                    )
                     
-                    # Cooldown
-                    if self.selection_cooldown > 0:
-                        self.selection_cooldown -= 1
+                    # Update transforms for selected object
+                    self.selected_object.scale = gesture.scale_factor
+                    self.selected_object.rotation = gesture.rotation_angle
                     
-                    gesture_mode = self.gesture_mode_var.get()
-                    transform_target = self.transform_target.get()
+                    action_text = f"S:{gesture.scale_factor:.1f} R:{gesture.rotation_angle:.0f}°"
                     
-                    # === UNIVERSAL GESTURES ===
+                    self.root.after(0, self._sync_from_gesture, gesture, action_text)
                     
-                    # PEACE: Switch Object <-> Image
-                    if is_peace and not is_pinching and self.selection_cooldown == 0:
-                        new_target = "image" if transform_target == "object" else "object"
-                        self.transform_target.set(new_target)
-                        self.root.after(0, self._on_mode_change)
-                        self.selection_cooldown = 40
-                        action_text = f"TARGET → {new_target.upper()}"
-                    
-                    # ROCK: Reset transforms
-                    elif is_rock and self.selection_cooldown == 0:
-                        self.root.after(0, self._reset_transforms_only)
-                        self.selection_cooldown = 40
-                        action_text = "RESET!"
-                    
-                    # THREE FINGERS: Go to Transform mode
-                    elif is_three_fingers and gesture_mode == "select" and self.selection_cooldown == 0:
-                        self.gesture_mode_var.set("transform")
-                        self.root.after(0, self._on_gesture_mode_change)
-                        self.selection_cooldown = 30
-                        action_text = "→ TRANSFORM"
-                    
-                    elif gesture_mode == "select":
-                        # === SELECT MODE ===
-                        
-                        if is_pointing and self.objects and transform_target == "object":
-                            px = int(index_tip.x * (self.original_image.shape[1] if self.original_image is not None else w))
-                            py = int(index_tip.y * (self.original_image.shape[0] if self.original_image is not None else h))
-                            self.pointing_position = (px, py)
-                            
-                            hover_obj = None
-                            for obj in self.objects:
-                                if cv2.pointPolygonTest(obj.contour, (px, py), False) >= 0:
-                                    hover_obj = obj
-                                    break
-                            self.hover_object = hover_obj
-                            action_text = f"Point ({px},{py})"
-                            cv2.circle(frame, (int(index_tip.x * w), int(index_tip.y * h)), 10, (0, 255, 0), -1)
-                        
-                        # FIST: Select or go to transform
-                        if is_fist and not self.was_fist and self.selection_cooldown == 0:
-                            if self.hover_object:
-                                self.root.after(0, lambda o=self.hover_object: self._select_object(o))
-                                action_text = f"SELECT: {self.hover_object.name}"
-                            self.gesture_mode_var.set("transform")
-                            self.root.after(0, self._on_gesture_mode_change)
-                            self.selection_cooldown = 30
-                        
-                        self.was_fist = is_fist
-                        
-                        # Swipe to cycle
-                        if is_pointing and self.objects and transform_target == "object":
-                            current_x = index_tip.x
-                            if self.last_index_tip_x is not None:
-                                dx = current_x - self.last_index_tip_x
-                                if abs(dx) > 0.15 and self.selection_cooldown == 0:
-                                    self._cycle_selection(1 if dx > 0 else -1)
-                                    action_text = "Swipe →" if dx > 0 else "Swipe ←"
-                                    self.selection_cooldown = 20
-                            self.last_index_tip_x = current_x
-                        else:
-                            self.last_index_tip_x = None
-                        
-                        hover_changed = (self.hover_object != last_hover_obj)
-                        last_hover_obj = self.hover_object
-                        if hover_changed or frame_count % 5 == 0:
-                            self.root.after(0, self._update_gesture_select_info, self.hover_object, action_text)
-                    
-                    else:
-                        # === TRANSFORM MODE ===
-                        gesture = self.recognizer.recognize(landmarks, self.webcam.width, self.webcam.height)
-                        
-                        if transform_target == "image":
-                            # Full image transform
-                            self.full_image_scale = gesture.scale_factor
-                            self.full_image_rotation = gesture.rotation_angle
-                            action_text = f"🖼 S:{gesture.scale_factor:.2f} R:{gesture.rotation_angle:.0f}°"
-                            self.root.after(0, self._sync_from_gesture_image, gesture, action_text)
-                            
-                            if is_pinky_thumb_touch and self.selection_cooldown == 0:
-                                self.full_image_flipped = not self.full_image_flipped
-                                self.selection_cooldown = 30
-                                action_text = "🖼 FLIP!"
-                                self.root.after(0, self._update_display)
-                        
-                        elif self.selected_object:
-                            # Object transform
-                            self.selected_object.scale = gesture.scale_factor
-                            self.selected_object.rotation = gesture.rotation_angle
-                            action_text = f"🎯 S:{gesture.scale_factor:.2f} R:{gesture.rotation_angle:.0f}°"
-                            self.root.after(0, self._sync_from_gesture, gesture, action_text)
-                            
-                            if is_pinky_thumb_touch and self.selection_cooldown == 0:
-                                self.selected_object.flipped = not self.selected_object.flipped
-                                self.selection_cooldown = 30
-                                action_text = "🎯 FLIP!"
-                                self.root.after(0, self._update_display)
-                        
-                        # PALM FLIP: Back to select
-                        if palm_flipped and self.selection_cooldown == 0:
-                            if transform_target == "object" and self.selected_object:
-                                self.root.after(0, self._deselect_object)
-                            self.gesture_mode_var.set("select")
-                            self.root.after(0, self._on_gesture_mode_change)
-                            self.selection_cooldown = 30
-                            action_text = "→ SELECT"
-                        
-                        # OPEN PALM: Back to select (keep object)
-                        if all_extended and not is_pinching and self.selection_cooldown == 0:
-                            self.gesture_mode_var.set("select")
-                            self.root.after(0, self._on_gesture_mode_change)
-                            self.selection_cooldown = 30
-                            action_text = "→ SELECT"
+                    # PINKY + THUMB touch to flip/mirror the selected object
+                    if is_pinky_thumb_touch and flip_cooldown == 0:
+                        self.selected_object.flipped = not self.selected_object.flipped
+                        flip_cooldown = 30
+                        action_text = "FLIP!"
+                        self.root.after(0, self._update_display)
+                elif landmarks:
+                    # Hand detected but no object selected
+                    action_text = "Select an object first"
+                    self.root.after(0, self._update_gesture_info, action_text)
                 
-                # Draw on frame
+                # Draw landmarks
                 self.detector.draw_landmarks(frame, landmarks)
-                target_text = f"Target: {self.transform_target.get().upper()}"
-                gesture_text = f"Mode: {self.gesture_mode_var.get().upper()}"
-                cv2.putText(frame, target_text, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                cv2.putText(frame, gesture_text, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-                cv2.putText(frame, action_text, (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                
+                # Draw status on frame
+                status = "TRANSFORM" if self.selected_object else "No object selected"
+                cv2.putText(frame, status, (10, 25), cv2.FONT_HERSHEY_SIMPLEX,
+                           0.6, (255, 255, 0), 2)
                 
                 self.root.after(0, lambda f=frame.copy(): self._update_webcam_frame(f))
+                
+                # Rate limit to ~30 FPS
                 time.sleep(0.033)
                 
             except Exception as e:
                 print(f"Gesture error: {e}")
-                import traceback
-                traceback.print_exc()
                 time.sleep(0.05)
     
-    def _reset_transforms_only(self):
-        """Reset transforms without clearing objects."""
-        if self.transform_target.get() == "image":
-            self.full_image_scale = 1.0
-            self.full_image_rotation = 0.0
-            self.full_image_flipped = False
-        elif self.selected_object:
-            self.selected_object.scale = 1.0
-            self.selected_object.rotation = 0.0
-            self.selected_object.flipped = False
-        
-        self.scale_var.set(1.0)
-        self.rotation_var.set(0.0)
-        self.flip_var.set(False)
-        self._update_display()
-        self.status_var.set("Transforms reset")
-    
-    def _sync_from_gesture_image(self, gesture, action_text="-"):
-        """Sync UI from gesture for full image mode."""
-        self.scale_var.set(gesture.scale_factor)
-        self.rotation_var.set(gesture.rotation_angle)
-        self.flip_var.set(self.full_image_flipped)
-        
-        self.gesture_labels["Mode"].config(text="🖼 IMAGE", foreground="cyan")
-        self.gesture_labels["Hover"].config(text="-", foreground="gray")
-        self.gesture_labels["Selected"].config(text="Full Image")
-        self.gesture_labels["Action"].config(text=action_text)
-        
-        self._update_display()
-    
-    def _cycle_selection(self, direction: int):
-        """Cycle through objects in the given direction."""
-        if not self.objects:
-            return
-        
-        if self.selected_object is None:
-            self.selected_index = 0
-        else:
-            self.selected_index = (self.selected_index + direction) % len(self.objects)
-        
-        obj = self.objects[self.selected_index]
-        self.root.after(0, lambda: self._select_object(obj))
-    
-    def _update_gesture_select_info(self, hover_obj, action_text):
-        """Update gesture info labels for selection mode."""
-        self.gesture_labels["Mode"].config(text="SELECT", foreground="cyan")
-        self.gesture_labels["Hover"].config(
-            text=hover_obj.name if hover_obj else "-",
-            foreground="yellow" if hover_obj else "gray"
-        )
+    def _update_gesture_info(self, action_text):
+        """Update gesture info labels (main thread)."""
         self.gesture_labels["Selected"].config(
-            text=self.selected_object.name if self.selected_object else "-"
+            text=self.selected_object.name if self.selected_object else "None"
         )
         self.gesture_labels["Action"].config(text=action_text)
-        
-        # Update display to show hover highlight
-        if self.original_image is not None:
-            self._update_display_with_hover(hover_obj)
-    
-    def _update_display_with_hover(self, hover_obj):
-        """Update display with hover highlight and cursor."""
-        if self.original_image is None:
-            return
-        
-        display = self.original_image.copy()
-        
-        # Draw all objects
-        for obj in self.objects:
-            if obj == self.selected_object:
-                color = (0, 255, 0)  # Green for selected
-                thickness = 3
-            elif obj == hover_obj:
-                color = (0, 255, 255)  # Yellow for hover
-                thickness = 2
-            else:
-                color = (100, 100, 100)  # Gray for others
-                thickness = 1
-            cv2.drawContours(display, [obj.contour], -1, color, thickness)
-        
-        # Apply transformation to selected object
-        if self.selected_object:
-            display = self._apply_transform(display, self.selected_object)
-        
-        # Draw cursor at pointing position
-        if self.pointing_position:
-            px, py = self.pointing_position
-            h, w = display.shape[:2]
-            
-            # Ensure cursor is within image bounds
-            px = max(0, min(px, w - 1))
-            py = max(0, min(py, h - 1))
-            
-            # Draw crosshair cursor
-            cursor_size = 20
-            cursor_color = (0, 255, 255) if hover_obj else (255, 255, 255)  # Yellow if hovering, white otherwise
-            
-            # Horizontal line
-            cv2.line(display, (px - cursor_size, py), (px + cursor_size, py), cursor_color, 2)
-            # Vertical line
-            cv2.line(display, (px, py - cursor_size), (px, py + cursor_size), cursor_color, 2)
-            # Center circle
-            cv2.circle(display, (px, py), 5, cursor_color, -1)
-            # Outer circle
-            cv2.circle(display, (px, py), cursor_size, cursor_color, 1)
-            
-            # If hovering, draw object name near cursor
-            if hover_obj:
-                label = hover_obj.name
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.6
-                thickness = 2
-                (tw, th), _ = cv2.getTextSize(label, font, font_scale, thickness)
-                
-                # Position label above cursor
-                label_x = px - tw // 2
-                label_y = py - cursor_size - 10
-                
-                # Background rectangle
-                cv2.rectangle(display, (label_x - 5, label_y - th - 5), 
-                            (label_x + tw + 5, label_y + 5), (0, 0, 0), -1)
-                cv2.putText(display, label, (label_x, label_y), font, font_scale, 
-                           (0, 255, 255), thickness)
-        
-        self._show_on_canvas(display)
     
     def _sync_from_gesture(self, gesture, action_text="-"):
         """Sync UI from gesture (main thread)."""
@@ -1668,10 +1210,8 @@ class MultiObjectManipulator:
         self.rotation_var.set(gesture.rotation_angle)
         self.flip_var.set(gesture.flip_horizontal)
         
-        self.gesture_labels["Mode"].config(text="TRANSFORM", foreground="lime")
-        self.gesture_labels["Hover"].config(text="-", foreground="gray")
         self.gesture_labels["Selected"].config(
-            text=self.selected_object.name if self.selected_object else "-"
+            text=self.selected_object.name if self.selected_object else "None"
         )
         self.gesture_labels["Action"].config(text=action_text)
         
@@ -1709,17 +1249,11 @@ class MultiObjectManipulator:
         if self.original_image is None:
             return
         
-        mode = self.transform_target.get()
-        
-        if mode == "image":
-            # Save full image transform
-            result = self._apply_full_image_transform()
-        else:
-            # Apply all object transforms
-            result = self.original_image.copy()
-            for obj in self.objects:
-                if obj.scale != 1.0 or obj.rotation != 0 or obj.flipped:
-                    result = self._apply_transform(result, obj)
+        # Apply all transforms
+        result = self.original_image.copy()
+        for obj in self.objects:
+            if obj.scale != 1.0 or obj.rotation != 0 or obj.flipped:
+                result = self._apply_transform(result, obj)
         
         path = filedialog.asksaveasfilename(
             defaultextension=".png",
@@ -1735,11 +1269,6 @@ class MultiObjectManipulator:
             obj.scale = 1.0
             obj.rotation = 0.0
             obj.flipped = False
-        
-        # Reset full image transforms
-        self.full_image_scale = 1.0
-        self.full_image_rotation = 0.0
-        self.full_image_flipped = False
         
         self.scale_var.set(1.0)
         self.rotation_var.set(0.0)
